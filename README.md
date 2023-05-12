@@ -14,7 +14,7 @@
 
 ### 图解
 
-[流程图](./README.assets/flow.drawio.svg)
+![流程图](./README.assets/flow.drawio.svg)
 
 ## how
 
