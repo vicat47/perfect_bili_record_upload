@@ -17,17 +17,26 @@ function Send-WechatMessage {
 }
 
 while ($true) {
-    $result = redis-cli -h 192.168.1.2 BLPOP render-list 5
+    $result = redis-cli -h $REDIS_ADDRESS BLPOP render-list 5
     if ($result -eq "") {
         Write-Output "No value found in render-list"
         break
     }
-    $value = $result[1]
-    $name = $value.Split(".")[0]
+    $json = ConvertFrom-Json $result[1]
+    $name = $json.filename.Split(".")[0]
     $new_value = "$name.mp4"
-    ffmpeg -i $value -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\锟斤拷锟絓$($new_value)"
-    Send-WechatMessage "$($value)锟斤拷染锟斤拷锟?"
-    redis-cli -h 192.168.1.2 RPUSH upload-list $new_value
+    # json
+    $resp = @{
+        filename = $new_value
+        bvid = $json.bvid
+    }
+    $resp_json = ConvertTo-Json -Compress -InputObject $resp
+    # 必须替换为这个，要不然 redis-cli 不认识。
+    $resp_json = $resp_json.Replace('"', '\"')
+    ffmpeg -i $json.filename -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\输出\$($new_value)"
+    Send-WechatMessage "$($json.filename) 渲染完毕"
+    Write-Output $resp_json
+    redis-cli -h $REDIS_ADDRESS RPUSH upload-list $resp_json
 }
 
 # shutdown -f -s -t 0
