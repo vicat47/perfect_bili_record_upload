@@ -38,6 +38,11 @@ perfect_bili_record_upload
 5. 打开 `bilibili`，欣赏你上传的影片。
 
 
+# 依赖项目
+
+1. [【github】tporadowski | redis](https://github.com/tporadowski/redis)
+2. [【github】biliup | biliup-rs](https://github.com/biliup/biliup-rs)
+
 # 参考文献
 
 1. [【bilibili】请叫我雯子小姐的小爷 | 69行代码！！！自己动手写一个OBS脚本插件，录制/直播任何你想展示的动态数据](https://www.bilibili.com/video/BV18t4y1S7by)
