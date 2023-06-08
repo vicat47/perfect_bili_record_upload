@@ -17,9 +17,9 @@ function Send-WechatMessage {
 }
 
 while ($true) {
-    $result = redis-cli -h $REDIS_ADDRESS BLPOP render-list 5
+    $result = redis-cli -h $REDIS_ADDRESS BLPOP biliup:render-list 5
     if ($result -eq "") {
-        Write-Output "No value found in render-list"
+        Write-Output "No value found in biliup:render-list"
         break
     }
     $json = ConvertFrom-Json $result[1]
@@ -36,7 +36,7 @@ while ($true) {
     ffmpeg -i $json.filename -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\Êä³ö\$($new_value)"
     Send-WechatMessage "$($json.filename) äÖÈ¾Íê±Ï"
     Write-Output $resp_json
-    redis-cli -h $REDIS_ADDRESS RPUSH upload-list $resp_json
+    redis-cli -h $REDIS_ADDRESS RPUSH biliup:upload-list $resp_json
 }
 
 # shutdown -f -s -t 0

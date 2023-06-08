@@ -44,6 +44,9 @@ def get_rec_path() -> str:
 
 
 def get_recorded_file():
+    '''从文件目录获取最新的录制文件
+    根据时间升序取最后一个
+    '''
     base_path = Path(get_rec_path())
     list = os.listdir(base_path)
     list.sort(key=lambda fileName: os.path.getmtime(base_path / fileName))
@@ -79,7 +82,7 @@ def rec_stop_callback(calldata):
         'filename': Path(record_path).name,
         'bvid': bvid,
     })
-    r.rpush('render-list', json_str)
+    r.rpush('biliup:render-list', json_str)
     print(f'render append {json_str}')
     # r.xadd('stream-video-render', {'file': str(record_path)})
     # redis.StrictRedis(host=redis_config['host'], port=redis_config['port'], db=redis_config['database']).set('obs:record', 'stop')

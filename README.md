@@ -43,6 +43,11 @@ perfect_bili_record_upload
 1. [【github】tporadowski | redis](https://github.com/tporadowski/redis)
 2. [【github】biliup | biliup-rs](https://github.com/biliup/biliup-rs)
 
+## 注意事项
+
+1. 在电脑上要执行 `powershell` 脚本需要修改策略，使用 `RemoteSigned` 阻止脚本访问。如果脚本位于共享文件夹中，需要使用 `Unrestricted`。使用管理员模式执行命令 `Set-ExecutionPolicy -ExecutionPolicy <PolicyName>`
+2. 国内电脑需要使用 `GBK` 编码修改脚本文件，请随时注意文件编码
+
 # 参考文献
 
 1. [【bilibili】请叫我雯子小姐的小爷 | 69行代码！！！自己动手写一个OBS脚本插件，录制/直播任何你想展示的动态数据](https://www.bilibili.com/video/BV18t4y1S7by)

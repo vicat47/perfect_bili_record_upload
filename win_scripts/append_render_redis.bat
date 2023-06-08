@@ -34,7 +34,7 @@ if "%~1"=="" (
 REM 循环打印拖拽到脚本上的每个文件名称
 for %%i in (%*) do (
     @REM   echo %%i
-    redis-cli -h %REDIS_ADDRESS% RPUSH render-list "{\"filename\": \"%%~nxi\", \"bvid\": \"!content!\" }"
+    redis-cli -h %REDIS_ADDRESS% RPUSH biliup:render-list "{\"filename\": \"%%~nxi\", \"bvid\": \"!content!\" }"
 )
 
 pause
