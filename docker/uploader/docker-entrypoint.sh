@@ -32,7 +32,6 @@ send_wechat_message() {
 
 while true; do
     # 从 Redis 获取数据（保持阻塞）
-    redis-cli -h 10.191.2.240 -p 6379 -n 0 -a wbWuibMcmWTpHB6JuufA3WztRwpdGLMQ BLPOP biliup:upload-list 0
     result=($(redis-cli -h $REDIS_ADDR -p $REDIS_PORT -n $REDIS_DATABASE BLPOP biliup:upload-list 0))
     
     # 检查是否获取到有效数据
@@ -49,7 +48,7 @@ while true; do
     
     # 存储处理中的任务（处理双引号转义）
     processed_str=$(echo "$json_str" | sed 's/"/\\"/g')
-    redis-cli -h $REDIS_ADDR SET biliup:processing:uploading "$processed_str" > /dev/null
+    redis-cli -h $REDIS_ADDR -p $REDIS_PORT -n $REDIS_DATABASE SET biliup:processing:uploading "$processed_str" > /dev/null
     
     # 执行上传命令
     biliup append -l qn --limit 6 --vid "$bvid" "$filename"
@@ -58,5 +57,5 @@ while true; do
     # send_wechat_message "${filename} 上传完毕"
     
     # 清理处理中的任务
-    redis-cli -h $REDIS_ADDR DEL biliup:processing:rendering > /dev/null
+    redis-cli -h $REDIS_ADDR -p $REDIS_PORT -n $REDIS_DATABASE DEL biliup:processing:rendering > /dev/null
 done
