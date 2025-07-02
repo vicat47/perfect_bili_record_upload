@@ -17,7 +17,8 @@ function Send-WechatMessage {
 }
 
 while ($true) {
-    $result = redis-cli -h 192.168.1.2 BLPOP biliup:upload-list 0
+    # $result = redis-cli -h 192.168.31.15 BLPOP biliup:upload-list 5
+    $result = redis-cli -h 192.168.31.15 BLPOP biliup:upload-list 0
     if ($result -eq "") {
         Write-Output "No value found in biliup:upload-list"
         continue
@@ -26,13 +27,15 @@ while ($true) {
     # 必须替换为这个，要不然 redis-cli 不认识。
     redis-cli -h 192.168.1.2 SET biliup:processing:uploading $result[1].Replace('"', '\"')
     biliup append -l qn --limit 6 --vid $json.bvid $json.filename
-    Send-WechatMessage "$($json.filename) 上传完毕"
+    Send-WechatMessage "$($json.filename) 上传完毕\n$($json | ConvertTo-Json)"
     # 后续使用
-    # $rendering = redis-cli -h 192.168.1.2 GET biliup:processing:rendering
+    # $rendering = redis-cli -h 192.168.31.15 GET biliup:processing:uploading
     # if ($result -eq "") {
-    #     Write-Output "No value found in biliup:processing:rendering"
+    #     Write-Output "No value found in biliup:processing:uploading"
     #     continue
     # }
     # $rendering_json = ConvertFrom-Json $rendering[1]
-    redis-cli -h 192.168.1.2 DEL biliup:processing:rendering
+    redis-cli -h 192.168.31.15 DEL biliup:processing:uploading
 }
+
+# shutdown -f -s -t 0
