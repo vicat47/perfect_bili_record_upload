@@ -9,8 +9,10 @@ import json
 
 
 G = _G()
-G.obsffi = CDLL(find_library("obs"))
-G.obsffi_front = CDLL(find_library("obs-frontend-api"))
+G.obsffi = CDLL("obs") # windows
+# G.obsffi = CDLL(find_library("obs")) # Linux/Mac
+G.obsffi_front = CDLL("obs-frontend-api")  # windows
+# G.obsffi_front = CDLL(find_library("obs-frontend-api")) # Linux/Mac
 
 
 bvid = ''

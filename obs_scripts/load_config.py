@@ -4,8 +4,10 @@ from ctypes.util import find_library
 import obspython as S
 
 G = _G()
-G.obsffi = CDLL(find_library("obs"))
-G.obsffi_front = CDLL(find_library("obs-frontend-api"))
+G.obsffi = CDLL("obs") # windows
+# G.obsffi = CDLL(find_library("obs")) # Linux/Mac
+G.obsffi_front = CDLL("obs-frontend-api")  # windows
+# G.obsffi_front = CDLL(find_library("obs-frontend-api")) # Linux/Mac
 
 
 def wrap(funcname, restype, argtypes=None, use_lib=None):
