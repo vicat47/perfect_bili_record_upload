@@ -1,82 +1,118 @@
 param(
-    # 参数：是否等待新任务1
     [Parameter()]
     [switch]$waitForNewTask,
-    # 参数：所有任务结束后是否关机
     [Parameter()]
     [switch]$shutdown,
-    # 参数：是否不进入上传队列
     [Parameter()]
     [switch]$noUpload
 )
 
+class AuthParam {
+    [string]$Type
+    [string]$Username
+    [string]$Password
+}
+
+class RenderProperties {
+    [string]$NotifyUrl
+    [string]$WechatTarget
+    [string]$RedisHost
+    [string]$OutputPath
+    [AuthParam]$Auth
+}
+
+# 统一配置变量 (脚本作用域)
+$script:Config = [RenderProperties]@{
+    NotifyUrl = "https://your-nodered-domain.com/hooks/wechat/message"  # 替换为通知目标URL
+    WechatTarget = "your_wechat_target_id"           # 替换为你的微信目标ID
+    RedisHost = "your.redis.host"                   # 替换为你的Redis主机地址
+    OutputPath = "X:\path\to\output\"               # 替换为你的输出路径
+    Auth = [AuthParam]@{
+        Type = "basic"
+        Username = "your_username"                  # 替换为你的用户名
+        Password = "your_password_placeholder"      # 替换为你的密码
+    }
+}
+
 function Send-WechatMessage {
     param (
-        $Content
+        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [string]$Content,
+        [Parameter(Mandatory=$false)]
+        [string]$NotifyUrl,
+        [Parameter(Mandatory=$false)]
+        [string]$SendTarget,
+        [Parameter(Mandatory=$false)]
+        [AuthParam]$Auth
     )
-    # 原始报文
-    # $BODY = @{
-    #     para = @{
-    #         id = (([DateTime]::Now.ToUniversalTime().Ticks - 621355968000000000)/10000).tostring().Substring(0,13)
-    #         type = 555
-    #         roomid = "null"
-    #         目标用户
-    #         wxid = "xxxxxxxxxxxxxx"
-    #         content = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::UTF8.GetBytes($Content))
-    #         nickname = "null"
-    #         ext = "null"
-    #     }
-    # }
-    # 原始请求
-    # Invoke-WebRequest -Uri "http://xxxxxxxxxxxxxxxxxxxxxxx" -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
+    
+    $uri = "$($NotifyUrl)"
+    # Basic Auth 认证信息
+    if (-not $Auth) {
+        $Auth = [AuthParam]@{
+            Type = "basic"
+            Username = "your_username"              # 替换为你的用户名
+            Password = "your_password_placeholder"  # 替换为你的密码
+        }
+    }
     $BODY = @{
-        target = "微信id"
-        content = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::UTF8.GetBytes($Content))
+        target = "$($SendTarget)"
+        content = $Content
     }
-    # 这里是自定义的 webhook 用于简化上面的请求
-    Invoke-WebRequest -Uri "https://xxxxxxxxxxxxxxxxxxxx" -Headers @{ Authorization = 'Bearer xxxxxxxxxxxxx' } -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
-}
-
-while ($true) {
-    if ($waitForNewTask.IsPresent) {
-        # redis 地址
-        $result = redis-cli -h 192.168.31.15 BLPOP biliup:render-list 0
+    if ($Auth.Type -eq "basic") {
+        $user = $Auth.Username
+        $pass = $Auth.Password
+        $secpasswd = ConvertTo-SecureString $pass -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential($user, $secpasswd)
+        Invoke-WebRequest -Uri $uri -Credential $credential -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
+    } elseif ($Auth.Type -eq "bearer") {
+        Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $($Auth.Password)" } -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
     } else {
-        $result = redis-cli -h 192.168.31.15 BLPOP biliup:render-list 5
-    }
-
-    if ($result -eq "") {
-        Write-Output "No value found in render-list"
-        break
-    }
-    $json = ConvertFrom-Json $result[1]
-    $name = $json.filename.Split(".")[0]
-    $new_value = "$name.mp4"
-    # json
-    $resp = @{
-        filename = $new_value
-        bvid = $json.bvid
-    }
-    $resp_json = ConvertTo-Json -Compress -InputObject $resp
-    # 必须替换为这个，要不然 redis-cli 不认识。
-    redis-cli -h 192.168.31.15 SET biliup:processing:rendering $resp_json.Replace('"', '\"')
-    # 通过 cpu 渲染视频
-    # ffmpeg -i $json.filename -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\输出\$($new_value)"
-    # 通过显卡渲染视频，精度没有 cpu好，但是时间特别快
-    # 输出到电脑挂载的硬盘上
-    ffmpeg -i $json.filename -c:v h264_nvenc -profile:v main -b:v 20000k -profile:v main -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\输出\$($new_value)"
-    Send-WechatMessage "$($json.filename) 渲染完毕"
-    $rendering = redis-cli -h 192.168.31.15 GET biliup:processing:rendering
-    if ($rendering -eq "") {
-        Write-Output "No value found in biliup:processing:rendering"
-        break
-    }
-    redis-cli -h 192.168.31.15 DEL biliup:processing:rendering
-    if (!$noUpload.IsPresent) {
-        redis-cli -h 192.168.31.15 RPUSH biliup:upload-list $rendering.Replace('"', '\"')
+        Invoke-WebRequest -Uri $uri -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
     }
 }
 
-if ($shutdown.IsPresent) {
-    shutdown -f -s -t 60
+function Main {
+    while ($true) {
+        if ($waitForNewTask.IsPresent) {
+            $result = redis-cli -h $script:Config.RedisHost BLPOP biliup:render-list 0
+        } else {
+            $result = redis-cli -h $script:Config.RedisHost BLPOP biliup:render-list 5
+        }
+
+        Write-Output "$($result)"
+        if ($result -eq "") {
+            Write-Output "No value found in render-list"
+            break
+        }
+        $json = ConvertFrom-Json $result[1]
+        $name = $json.filename.Split(".")[0]
+        $new_value = "$name.mp4"
+        # json
+        $resp = @{
+            filename = $new_value
+            bvid = $json.bvid
+        }
+        $resp_json = ConvertTo-Json -Compress -InputObject $resp
+        # 必须替换为这个，要不然 redis-cli 不认识。
+        redis-cli -h $script:Config.RedisHost SET biliup:processing:rendering $resp_json.Replace('"', '\"')
+        ffmpeg -i $json.filename -c:v h264_nvenc -profile:v main -b:v 20000k -profile:v main -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "$($script:Config.OutputPath)$($new_value)"
+        Send-WechatMessage -Content "$($json.filename) 渲染完毕" -BaseUrl $script:Config.NotifyUrl -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth
+        $rendering = redis-cli -h $script:Config.RedisHost GET biliup:processing:rendering
+        if ($rendering -eq "") {
+            Write-Output "No value found in biliup:processing:rendering"
+            break
+        }
+        redis-cli -h $script:Config.RedisHost DEL biliup:processing:rendering
+        if (!$noUpload.IsPresent) {
+            redis-cli -h $script:Config.RedisHost RPUSH biliup:upload-list $rendering.Replace('"', '\"')
+        }
+    }
+
+    if ($shutdown.IsPresent) {
+        shutdown -f -s -t 60
+    }
 }
+
+Main
+# Send-WechatMessage -Content "test渲染完毕" -BaseUrl $script:Config.NotifyUrl -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth
