@@ -72,8 +72,57 @@ function Send-WechatMessage {
     }
 }
 
+function Start-VideoTask {
+    param(
+        [Parameter(Mandatory=$true)]
+        $json,
+        
+        [Parameter(Mandatory=$false)]
+        [bool]$FromRedis = $true
+    )
+
+    $name = $json.filename.Split(".")[0]
+    $new_value = "$name.mp4"
+
+    if ($FromRedis) {
+        # json
+        $resp = @{
+            filename = $new_value
+            bvid = $json.bvid
+        }
+        $resp_json = ConvertTo-Json -Compress -InputObject $resp
+        # 必须替换为这个，要不然 redis-cli 不认识。
+        redis-cli -h $script:Config.RedisHost SET biliup:processing:rendering $resp_json.Replace('"', '\"')
+    }
+
+    Write-Output "开始渲染: $($json.filename)"
+
+    # ffmpeg -i $json.filename -c:v libx264 -profile:v main -b:v 20000k -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\输出\$($new_value)"
+    ffmpeg -i $json.filename -c:v h264_nvenc -profile:v main -b:v 20000k -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "$($script:Config.OutputPath)$($new_value)"
+    Send-WechatMessage -Content "$($json.filename) 渲染完毕" -BaseUrl $script:Config.NodeRedHost -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth
+    if ($FromRedis) {
+        # 清理Redis中的处理状态
+        $rendering = redis-cli -h $script:Config.RedisHost GET biliup:processing:rendering
+        if ($rendering -eq "") {
+            Write-Output "No value found in biliup:processing:rendering"
+            break
+        }
+        redis-cli -h $script:Config.RedisHost DEL biliup:processing:rendering
+    }
+    if (!$noUpload.IsPresent) {
+        $resp = @{
+            filename = $new_value
+            bvid = $json.bvid
+        }
+        $resp_json = ConvertTo-Json -Compress -InputObject $resp
+        redis-cli -h $script:Config.RedisHost RPUSH biliup:upload-list $rendering.Replace('"', '\"')
+    }
+}
+
 function Main {
     while ($true) {
+        # 测试脚本
+        # LPUSH biliup:render-list '{"bvid": "BV12345678","filename": "2025-08-17_21-35-28.mkv"}'
         if ($waitForNewTask.IsPresent) {
             $result = redis-cli -h $script:Config.RedisHost BLPOP biliup:render-list 0
         } else {
@@ -86,27 +135,7 @@ function Main {
             break
         }
         $json = ConvertFrom-Json $result[1]
-        $name = $json.filename.Split(".")[0]
-        $new_value = "$name.mp4"
-        # json
-        $resp = @{
-            filename = $new_value
-            bvid = $json.bvid
-        }
-        $resp_json = ConvertTo-Json -Compress -InputObject $resp
-        # 必须替换为这个，要不然 redis-cli 不认识。
-        redis-cli -h $script:Config.RedisHost SET biliup:processing:rendering $resp_json.Replace('"', '\"')
-        ffmpeg -i $json.filename -c:v h264_nvenc -profile:v main -b:v 20000k -profile:v main -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "$($script:Config.OutputPath)$($new_value)"
-        Send-WechatMessage -Content "$($json.filename) 渲染完毕" -BaseUrl $script:Config.NotifyUrl -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth
-        $rendering = redis-cli -h $script:Config.RedisHost GET biliup:processing:rendering
-        if ($rendering -eq "") {
-            Write-Output "No value found in biliup:processing:rendering"
-            break
-        }
-        redis-cli -h $script:Config.RedisHost DEL biliup:processing:rendering
-        if (!$noUpload.IsPresent) {
-            redis-cli -h $script:Config.RedisHost RPUSH biliup:upload-list $rendering.Replace('"', '\"')
-        }
+        Start-VideoTask -json $json -FromRedis $true
     }
 
     if ($shutdown.IsPresent) {
