@@ -1,0 +1,2 @@
+*.ps1     text   eol=lf   charset=gb2312
+*.bat     text   eol=lf   charset=gb2312
