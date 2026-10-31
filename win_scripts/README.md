@@ -1,167 +1,107 @@
-# 命令
-```shell
-# 显卡硬件编码
-ffmpeg -f concat -safe 0 -i .\day2.txt -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 3840x2160 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p day2.mp4
+# Windows 脚本
 
-# 软件编码
-ffmpeg -f concat -safe 0 -i .\day2.txt -c:v libx264 -profile:v main -b:v 19000k -profile:v main -preset veryslow -s 3840x2160 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p day2.mp4
+## 依赖
 
-# 视频剪切
-ffmpeg -ss xx:xx:xx -to xx:xx:xx -i .\day9.mp4 -c:v copy -c:a copy day9_p1.mp4
+- Windows PowerShell 5.1 或 PowerShell 7+
+- ffmpeg / ffprobe（`Test-RenderEnvironment` 会检查 NVENC）
+- redis-cli
+- biliup（上传端）
 
-ffmpeg -i long.mp4 -acodec copy -vn -f segment -segment_time 3000 -segment_start_number 1 day28_%d.mp4
-ffmpeg -i xxx.mp4 -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 3840x2160 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p -f segment -segment_time 3000 -segment_start_number 1 day28_%d.mp4
-使用-reset_timestamps 1 设置每一个切片的时间戳都从0开始
-segment_start_number number
-Set the sequence number of the first segment. Defaults to 0.
-
-# 视频追加
-$APPEND_AVID=254353157
-$OUT_DAY=36
-$OUT_NAME="继续死磕女武神"
-$INPUT_FILE="..\2022-04-10_21-18-44.mkv"
-Start-Transcript -Append "day$OUT_DAY.log"; `
-ffmpeg -i $INPUT_FILE -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 3840x2160 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p "..\day$OUT_DAY.mp4"; `
-ffmpeg -i "..\day$OUT_DAY.mp4" -c:v copy -c:a copy -f segment -segment_time 3000 -segment_start_number 1 "day$OUT_DAY`_p%d$OUT_NAME.mp4"; `
-@(Get-ChildItem -Recurse -Filter "day$OUT_DAY`_p*.mp4") | %{& .\biliup.exe append -l qn --limit 6 -a $APPEND_AVID $_}; `
-Stop-Transcript; `
-shutdown -s -t 0
-
-sudo docker run --rm \
-	--device /dev/dri:/dev/dri \
-	-v /volume1/record/OBS:/record/obs \
-	jrottenberg/ffmpeg:vaapi \
-	-hwaccel vaapi -hwaccel_output_format vaapi \
-	-i /record/obs/2022-04-11_21-39-12.mkv -c:v h264_vaapi -profile:v main -b:v 19000k -c:a aac -b:a 320k -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p /record/obs/test.mp4
-	
-$APPEND_AVID=254353157
-# 发送消息
-function Send-WechatMessage {
-	param (
-        $Content
-    )
-    $BODY = @{
-        para = @{
-            id = (([DateTime]::Now.ToUniversalTime().Ticks - 621355968000000000)/10000).tostring().Substring(0,13)
-            type = 555
-            roomid = "null"
-            # wxid = "xxxxxxxxxxxxxx@chatroom"
-            wxid = "wxid_xxxxxxxxxxxxxxxxx"
-            content = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::UTF8.GetBytes($Content))
-            nickname = "null"
-            ext = "null"
-        }
-    }
-    Invoke-WebRequest -Uri "http://192.168.31.20:5555/api/getcontactlist" -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
-}
-
-# 转码视频
-function Encode-BiliBiliVideo {
-	param (
-		$INPUT_FILE,
-		$OUT_DAY,
-		$OUT_NAME,
-		$APPEND_AVID,
-		[PSDefaultValue(Help = '1')]
-		$SEGMENT_START_NUMBER = 1
-	)
-	$OUT_DAY_NAME = "day$OUT_DAY.mp4"
-	if ( 1 -ne $SEGMENT_START_NUMBER ) {
-		$OUT_DAY_NAME = "day$OUT_DAY`_$SEGMENT_START_NUMBER"
-	}
-	ffmpeg -i $INPUT_FILE -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 3840x2160 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p "..\$OUT_DAY_NAME"; `
-    ffmpeg -i "..\$OUT_DAY_NAME" -c:v copy -c:a copy -f segment -segment_time 3000 -segment_start_number $SEGMENT_START_NUMBER "day$OUT_DAY`_p%d$OUT_NAME.mp4"; `
-    Send-WechatMessage "$INPUT_FILE 转码完成"; `
-#    ,@(Get-ChildItem -Recurse -Filter "day$OUT_DAY`_p*.mp4") | %{& .\biliup.exe append -l qn --limit 6 -a $APPEND_AVID $_}
-#    Send-WechatMessage "第 $OUT_DAY 天 $OUT_NAME 上传完成"
-}
-
-# b站新的伪4k命令
-ffmpeg -i .\2023-03-03_22-29-03.mkv -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 60000k -bufsize 60000k -pix_fmt yuv420p ./输出/057_就这？脚劲大又如何？踩不到不就被我白打！.mp4
-ffmpeg -i .\2023-03-04_22-47-36.mkv -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=8 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p .\输出\058_火山摸剑，本以为百人斩已经是最难.mp4;
-
-
-# 渲染端
-while ($true) {
-    $result = redis-cli -h 192.168.31.15 BLPOP render-list 5
-    if ($result -eq "") {
-        Write-Output "No value found in render-list"
-        break
-    }
-    $value = $result[1]
-    ffmpeg -i $value -c:v libx264 -profile:v main -b:v 20000k -profile:v main -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 60000k -bufsize 60000k -pix_fmt yuv420p "R:\OBS\输出\$($value)"
-    Send-WechatMessage "$($value)渲染完毕"
-    redis-cli -h 192.168.31.15 RPUSH upload-list $value
-}
-
-# 上传端
-while ($true) {
-    $result = redis-cli -h 192.168.31.15 BLPOP upload-list 0
-    $value = $result[1]
-    if ($result -eq "") {
-        Write-Output "No value found in render-list"
-        continue
-    }
-    biliup append -l qn --limit 6 --vid BV1ub411o7Xj $value
-    Send-WechatMessage "$($value)上传完毕"
-}
-```
-
-
-
-# 分割输出
-
-1. 打开 PR
-2. 视频用刀片切割
-3. 右键每一段，嵌套
-4. 选中所有序列，输出
-5. 进入队列
-
-
-ffmpeg -i "./bayonetta3/2022-11-10 22-20-35.mkv" -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 1920x1080 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p ./bayonetta3/day2_1.mp4; `
-ffmpeg -i "./bayonetta3/2022-11-10 22-53-31.mkv" -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 1920x1080 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p ./bayonetta3/day2_2.mp4; `
-ffmpeg -i "./Splatoon3/2022-09-11 23-35-20.mkv" -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 1920x1080 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p ./Splatoon3/day1.mp4; `
-ffmpeg -i "./Splatoon3/2022-11-10 21-53-51.mkv" -c:v h264_nvenc -profile:v main -b:v 19000k -profile:v main -s 1920x1080 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 24000k -bufsize 24000k -pix_fmt yuv420p ./Splatoon3/day2.mp4
-
-
-
-
-
-
-
-
-
-
-
-
-
-## 切片
+## 初始化配置
 
 ```powershell
-ffmpeg -to 00:47:31 -i .\day14.mp4 -c:v copy -c:a copy day14_p1.mp4; `
-ffmpeg -ss 00:47:31 -i .\day14.mp4 -c:v copy -c:a copy day14_p2.mp4; `
-ffmpeg -to 00:45:38 -i .\day16.mp4 -c:v copy -c:a copy day16_p1.mp4; `
-ffmpeg -ss 00:47:31 -to 01:28:31 -i .\day16.mp4 -c:v copy -c:a copy day16_p2.mp4; `
-ffmpeg -ss 01:28:31 -to 02:11:07 -i .\day16.mp4 -c:v copy -c:a copy day16_p3.mp4; `
-ffmpeg -ss 02:11:07 -to 02:54:27  -i .\day16.mp4 -c:v copy -c:a copy day16_p4.mp4; `
-ffmpeg -ss 02:54:27 -to 03:22:36  -i .\day16.mp4 -c:v copy -c:a copy day16_p5.mp4
-
-# day17
-ffmpeg -to 00:54:23  -i .\day17.mp4 -c:v copy -c:a copy day17_p1.mp4; `
-ffmpeg -ss 00:54:23 -to 01:41:44 -i .\day17.mp4 -c:v copy -c:a copy day17_p2.mp4; `
-ffmpeg -ss 01:41:44 -to 02:27:49 -i .\day17.mp4 -c:v copy -c:a copy day17_p3.mp4; `
-ffmpeg -ss 02:27:49 -i .\day17.mp4 -c:v copy -c:a copy day17_p4.mp4
-
-# day18
-ffmpeg -to 00:57:18  -i .\day18.mp4 -c:v copy -c:a copy day18_p1.mp4; `
-ffmpeg -ss 00:57:18 -to 01:52:31  -i .\day18.mp4 -c:v copy -c:a copy day18_p2.mp4; `
-ffmpeg -ss 01:52:31 -to 02:47:17 -i .\day18.mp4 -c:v copy -c:a copy day18_p3.mp4; `
-ffmpeg -ss 02:47:17 -to 03:41:15 -i .\day18.mp4 -c:v copy -c:a copy day18_p4.mp4; `
-ffmpeg -ss 03:41:15 -i .\day18.mp4 -c:v copy -c:a copy day18_p5.mp4; `
-ffmpeg -to 00:52:06 -i .\day19.mp4 -c:v copy -c:a copy day19_p1.mp4; `
-ffmpeg -ss 00:52:06 -to 01:43:57 -i .\day19.mp4 -c:v copy -c:a copy day19_p2.mp4; `
-ffmpeg -ss 01:43:57 -to 02:31:46 -i .\day19.mp4 -c:v copy -c:a copy day19_p3.mp4; `
-ffmpeg -ss 02:31:46 -i .\day19.mp4 -c:v copy -c:a copy day19_p4.mp4; `
+Copy-Item .\render.config.example.psd1 .\render.config.psd1
+Copy-Item .\upload.config.example.psd1 .\upload.config.psd1
+# 然后编辑两个配置文件
 ```
 
- 
+`render.config.psd1` 和 `upload.config.psd1` 已被 `.gitignore` 忽略，不会提交。
+
+通知统一使用 `{ "target": "...", "content": "..." }` JSON，`NotifyUrl` 填完整的 webhook 地址。
+
+## 渲染端
+
+```powershell
+# 检查配置、ffmpeg、redis-cli，不连接 Redis
+.\render_video.ps1 -ValidateOnly
+
+# 常驻，等待新任务
+.\render_video.ps1 -waitForNewTask
+
+# 处理当前队列，空闲 5 秒后退出
+.\render_video.ps1
+
+# 不推上传队列
+.\render_video.ps1 -noUpload
+
+# 关闭 ffmpeg 进度行
+.\render_video.ps1 -noProgress
+```
+
+`-shutdown` 会在队列处理完（通常配合不带 `-waitForNewTask` 使用）后执行 `shutdown.exe -f -s -t 60`。
+
+## 上传端
+
+```powershell
+.\upload_video.ps1 -ValidateOnly
+.\upload_video.ps1
+```
+
+上传端是常驻进程，从 `biliup:upload-list` 阻塞取任务。
+
+## 加入渲染队列
+
+把视频文件拖到 `append_render_redis.bat`，或者在 PowerShell 中：
+
+```powershell
+.\enqueue_render.ps1 'D:\record\a.mkv'
+.\enqueue_render.ps1 'D:\record\a.mkv', 'D:\record\b.mkv' -DryRun
+```
+
+`bvid.txt` 放在本目录，内容为目标 BVID，例如：
+
+```text
+BV1xxxxxxxxx
+```
+
+拖拽脚本只是调用 `enqueue_render.ps1`，Redis 地址来自 `render.config.psd1`，不再需要 `REDIS_ADDRESS` 环境变量。
+
+## RenderVideo 模块
+
+模块可以单独导入，用于编码或快速拆分：
+
+```powershell
+Import-Module .\RenderVideo\RenderVideo.psd1
+
+# 编码
+Invoke-VideoRender -InputPath .\a.mkv -OutputPath .\out\a.mp4 -FastStart
+
+# 按 10:00 / 20:00 拆分
+Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00
+
+# 检查环境
+Test-RenderEnvironment | Format-List
+```
+
+默认显示 ffmpeg 风格进度；`-NoProgress` 关闭。完整参数见 [`RenderVideo/README.md`](RenderVideo/README.md)。
+
+## Redis 键
+
+| 键 | 用途 |
+| --- | --- |
+| `biliup:render-list` | 待渲染任务 |
+| `biliup:processing:rendering` | 当前渲染任务 |
+| `biliup:upload-list` | 待上传任务 |
+| `biliup:processing:uploading` | 当前上传任务 |
+| `biliup:render-failed` | 渲染失败任务 |
+| `biliup:upload-failed` | 上传失败任务 |
+
+## 常见问题
+
+- **找不到 ffmpeg / NVENC**：运行 `Test-RenderEnvironment`；确认 ffmpeg 带 `h264_nvenc`，并且驱动支持 NVENC。
+- **Redis 连不上**：先运行 `redis-cli -h <host> PING`。
+- **脚本无法执行**：设置执行策略，例如 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`。
+- **中文乱码**：`.ps1/.psm1/.psd1` 使用 UTF-8 with BOM；`.bat` 使用 ASCII/CRLF。
+- **拆分时间不准**：`Split-Video` 使用 `-c copy`，只能按关键帧切；需要精确切点请重新编码。
+
+更多设计说明见 [`../docs/architecture.md`](../docs/architecture.md) 和 [`../docs/render-video-module.md`](../docs/render-video-module.md)。

@@ -1,147 +1,328 @@
+ï»¿#Requires -Version 5.1
+
+<#
+.SYNOPSIS
+    ä»Ž Redis æ¸²æŸ“é˜Ÿåˆ—å–ä»»åŠ¡ï¼Œè°ƒç”¨ RenderVideo æ¨¡å—ç¼–ç ã€‚
+
+.DESCRIPTION
+    ä»»åŠ¡æ ¼å¼ï¼š{"filename":"2025-08-17_21-35-28.mkv","bvid":"BV..."}
+    æˆåŠŸåŽå°† {"filename":"2025-08-17_21-35-28.mp4","bvid":"BV..."} æŽ¨å…¥ biliup:upload-listã€‚
+    å¤±è´¥æ—¶æŽ¨å…¥ biliup:render-failedï¼Œæ–¹ä¾¿åŽç»­æŽ’æŸ¥/é‡è¯•ã€‚
+
+    é…ç½®æ–‡ä»¶é»˜è®¤æ˜¯è„šæœ¬ç›®å½•ä¸‹çš„ render.config.psd1ã€‚
+    é¦–æ¬¡ä½¿ç”¨è¯·å¤åˆ¶ render.config.example.psd1 å¹¶å¡«å†™ã€‚
+
+.EXAMPLE
+    .\render_video.ps1 -waitForNewTask
+
+.EXAMPLE
+    .\render_video.ps1 -ValidateOnly
+
+.EXAMPLE
+    .\render_video.ps1 -noUpload -noProgress
+#>
+[CmdletBinding()]
 param(
-    [Parameter()]
     [switch]$waitForNewTask,
-    [Parameter()]
     [switch]$shutdown,
-    [Parameter()]
-    [switch]$noUpload
+    [switch]$noUpload,
+    [switch]$noProgress,
+    [switch]$ValidateOnly,
+    [string]$ConfigPath = (Join-Path $PSScriptRoot 'render.config.psd1')
 )
 
-class AuthParam {
-    [string]$Type
-    [string]$Username
-    [string]$Password
+$ErrorActionPreference = 'Stop'
+
+Import-Module (Join-Path $PSScriptRoot 'PerfectBili.Common\PerfectBili.Common.psd1') -Force
+Import-Module (Join-Path $PSScriptRoot 'RenderVideo\RenderVideo.psd1') -Force
+
+if (-not (Test-Path -LiteralPath $ConfigPath)) {
+    throw "Config file not found: $ConfigPath. Copy render.config.example.psd1 to render.config.psd1 and edit it."
 }
 
-class RenderProperties {
-    [string]$NotifyUrl
-    [string]$WechatTarget
-    [string]$RedisHost
-    [string]$OutputPath
-    [AuthParam]$Auth
-}
+$script:Config = Import-PowerShellDataFile -LiteralPath $ConfigPath
 
-# Í³Ò»ÅäÖÃ±äÁ¿ (½Å±¾×÷ÓÃÓò)
-$script:Config = [RenderProperties]@{
-    NotifyUrl = "https://your-nodered-domain.com/hooks/wechat/message"  # Ìæ»»ÎªÍ¨ÖªÄ¿±êURL
-    WechatTarget = "your_wechat_target_id"           # Ìæ»»ÎªÄãµÄÎ¢ÐÅÄ¿±êID
-    RedisHost = "your.redis.host"                   # Ìæ»»ÎªÄãµÄRedisÖ÷»úµØÖ·
-    OutputPath = "X:\path\to\output\"               # Ìæ»»ÎªÄãµÄÊä³öÂ·¾¶
-    Auth = [AuthParam]@{
-        Type = "basic"
-        Username = "your_username"                  # Ìæ»»ÎªÄãµÄÓÃ»§Ãû
-        Password = "your_password_placeholder"      # Ìæ»»ÎªÄãµÄÃÜÂë
-    }
-}
-
-function Send-WechatMessage {
-    param (
-        [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
-        [string]$Content,
-        [Parameter(Mandatory=$false)]
-        [string]$NotifyUrl,
-        [Parameter(Mandatory=$false)]
-        [string]$SendTarget,
-        [Parameter(Mandatory=$false)]
-        [AuthParam]$Auth
-    )
-    
-    $uri = "$($NotifyUrl)"
-    # Basic Auth ÈÏÖ¤ÐÅÏ¢
-    if (-not $Auth) {
-        $Auth = [AuthParam]@{
-            Type = "basic"
-            Username = "your_username"              # Ìæ»»ÎªÄãµÄÓÃ»§Ãû
-            Password = "your_password_placeholder"  # Ìæ»»ÎªÄãµÄÃÜÂë
-        }
-    }
-    $BODY = @{
-        target = "$($SendTarget)"
-        content = $Content
-    }
-    if ($Auth.Type -eq "basic") {
-        $user = $Auth.Username
-        $pass = $Auth.Password
-        $secpasswd = ConvertTo-SecureString $pass -AsPlainText -Force
-        $credential = New-Object System.Management.Automation.PSCredential($user, $secpasswd)
-        Invoke-WebRequest -Uri $uri -Credential $credential -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
-    } elseif ($Auth.Type -eq "bearer") {
-        Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $($Auth.Password)" } -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
-    } else {
-        Invoke-WebRequest -Uri $uri -Method Post -ContentType "application/json; charset=utf-8" -Body ($BODY | ConvertTo-Json)
-    }
-}
-
-function Start-VideoTask {
+function Assert-Config {
+    [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
-        $json,
-        
-        [Parameter(Mandatory=$false)]
-        [bool]$FromRedis = $true
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Config
     )
 
-    $name = $json.filename.Split(".")[0]
-    $new_value = "$name.mp4"
-
-    if ($FromRedis) {
-        # json
-        $resp = @{
-            filename = $new_value
-            bvid = $json.bvid
+    foreach ($key in @('NotifyUrl', 'WechatTarget', 'RedisHost', 'InputPath', 'OutputPath')) {
+        if (-not $Config.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$Config[$key])) {
+            throw "Config key '$key' is missing or empty."
         }
-        $resp_json = ConvertTo-Json -Compress -InputObject $resp
-        # ±ØÐëÌæ»»ÎªÕâ¸ö£¬Òª²»È» redis-cli ²»ÈÏÊ¶¡£
-        redis-cli -h $script:Config.RedisHost SET biliup:processing:rendering $resp_json.Replace('"', '\"')
     }
 
-    Write-Output "¿ªÊ¼äÖÈ¾: $($json.filename)"
+    if ($Config.RedisHost -match '^your[\.-]' -or
+        $Config.NotifyUrl -match 'your-nodered-domain' -or
+        $Config.WechatTarget -match '^your_') {
+        throw "Config still contains example values. Edit $ConfigPath."
+    }
 
-    # ffmpeg -i $json.filename -c:v libx264 -profile:v main -b:v 20000k -preset veryslow -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "R:\OBS\Êä³ö\$($new_value)"
-    ffmpeg -i $json.filename -c:v h264_nvenc -profile:v main -b:v 20000k -s 2844x1600 -c:a aac -b:a 320k -x264opts crf=12 -maxrate:v 30000k -bufsize 30000k -pix_fmt yuv420p "$($script:Config.OutputPath)$($new_value)"
-    Send-WechatMessage -Content "$($json.filename) äÖÈ¾Íê±Ï" -BaseUrl $script:Config.NodeRedHost -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth
-    if ($FromRedis) {
-        # ÇåÀíRedisÖÐµÄ´¦Àí×´Ì¬
-        $rendering = redis-cli -h $script:Config.RedisHost GET biliup:processing:rendering
-        if ($rendering -eq "") {
-            Write-Output "No value found in biliup:processing:rendering"
-            break
+    if ($Config.ContainsKey('Auth') -and $Config.Auth) {
+        $authType = [string]$Config.Auth.Type
+        if ($authType -notin @('', 'none', 'basic', 'bearer')) {
+            throw "Unsupported Auth.Type '$authType'. Use basic, bearer or none."
         }
-        redis-cli -h $script:Config.RedisHost DEL biliup:processing:rendering
-    }
-    if (!$noUpload.IsPresent) {
-        $resp = @{
-            filename = $new_value
-            bvid = $json.bvid
+        if ($authType -in @('basic', 'bearer') -and [string]::IsNullOrWhiteSpace([string]$Config.Auth.Password)) {
+            throw "Config Auth.Password is required for Auth.Type '$authType'."
         }
-        $resp_json = ConvertTo-Json -Compress -InputObject $resp
-        redis-cli -h $script:Config.RedisHost RPUSH biliup:upload-list $rendering.Replace('"', '\"')
+        if ($authType -in @('basic', 'bearer') -and $Config.Auth.Password -match '^your_.*(placeholder|token)') {
+            throw "Config still contains example Auth.Password. Edit $ConfigPath."
+        }
     }
+}
+
+Assert-Config -Config $script:Config
+
+$script:RenderOptions = @{
+    VideoCodec   = 'h264_nvenc'
+    Preset       = 'p5'
+    Cq           = 19
+    Width        = 2844
+    Height       = 1600
+    VideoBitrate = '20000k'
+    MaxBitrate   = '30000k'
+    BufferSize   = '30000k'
+    AudioCodec   = 'aac'
+    AudioBitrate = '320k'
+    FastStart    = $true
+}
+
+if ($script:Config.ContainsKey('Render') -and $script:Config.Render) {
+    foreach ($key in $script:Config.Render.Keys) {
+        $script:RenderOptions[$key] = $script:Config.Render[$key]
+    }
+}
+
+function Resolve-TaskPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Filename
+    )
+
+    if ([IO.Path]::IsPathRooted($Filename)) {
+        return $Filename
+    }
+    return Join-Path $script:Config.InputPath $Filename
+}
+
+function Set-RenderState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Json
+    )
+
+    $null = Invoke-RedisCli -RedisHost $script:Config.RedisHost -Arguments @('SET', 'biliup:processing:rendering') -InputValue $Json
+}
+
+function Clear-RenderState {
+    [CmdletBinding()]
+    param()
+
+    try {
+        $null = Invoke-RedisCli -RedisHost $script:Config.RedisHost -Arguments @('DEL', 'biliup:processing:rendering')
+    }
+    catch {
+        Write-PipelineLog -Level WARN -Message "Failed to clear biliup:processing:rendering: $($_.Exception.Message)"
+    }
+}
+
+function Push-UploadTask {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Json
+    )
+
+    $null = Invoke-RedisCli -RedisHost $script:Config.RedisHost -Arguments @('RPUSH', 'biliup:upload-list') -InputValue $Json
+}
+
+function Push-RenderFailure {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Json
+    )
+
+    try {
+        $null = Invoke-RedisCli -RedisHost $script:Config.RedisHost -Arguments @('RPUSH', 'biliup:render-failed') -InputValue $Json
+    }
+    catch {
+        Write-PipelineLog -Level WARN -Message "Failed to push biliup:render-failed: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-RenderTask {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Task
+    )
+
+    $taskJson = ConvertTo-Json -Compress -InputObject $Task
+    $stateSet = $false
+    $success = $false
+    $payloadJson = $null
+    $outputName = $null
+
+    try {
+        if ([string]::IsNullOrWhiteSpace([string]$Task.filename) -or [string]::IsNullOrWhiteSpace([string]$Task.bvid)) {
+            throw "Invalid render task: $taskJson"
+        }
+
+        $inputPath = Resolve-TaskPath -Filename $Task.filename
+        $inputItem = Get-Item -LiteralPath $inputPath -ErrorAction Stop
+        if ($inputItem.PSIsContainer) {
+            throw "Input path is a directory: $inputPath"
+        }
+
+        $baseName = [IO.Path]::GetFileNameWithoutExtension($inputItem.Name)
+        $outputName = "$baseName.mp4"
+        $outputPath = Join-Path $script:Config.OutputPath $outputName
+
+        $logPath = $null
+        if ($script:Config.ContainsKey('LogDirectory') -and -not [string]::IsNullOrWhiteSpace([string]$script:Config.LogDirectory)) {
+            $logPath = Join-Path $script:Config.LogDirectory "$baseName.ffmpeg.log"
+        }
+
+        $payload = @{
+            filename = $outputName
+            bvid     = $Task.bvid
+        }
+        $payloadJson = ConvertTo-Json -Compress -InputObject $payload
+
+        Set-RenderState -Json $payloadJson
+        $stateSet = $true
+
+        Write-PipelineLog "Start rendering: $($Task.filename)"
+
+        $renderArgs = @{
+            InputPath  = $inputItem.FullName
+            OutputPath = $outputPath
+            Overwrite  = $true
+        }
+        foreach ($key in $script:RenderOptions.Keys) {
+            $renderArgs[$key] = $script:RenderOptions[$key]
+        }
+        if ($logPath) {
+            $renderArgs.LogPath = $logPath
+        }
+        if ($noProgress) {
+            $renderArgs.NoProgress = $true
+        }
+
+        $result = Invoke-VideoRender @renderArgs
+        $success = $true
+
+        Write-PipelineLog "Finished rendering: $outputName ($([math]::Round($result.Elapsed.TotalMinutes, 2)) min, $([math]::Round($result.OutputSizeBytes / 1GB, 2)) GiB)"
+        Send-PipelineNotification -Config $script:Config -Content "$($Task.filename) æ¸²æŸ“å®Œæ¯•"
+    }
+    catch {
+        Write-PipelineLog -Level ERROR -Message "Render failed: $($Task.filename): $($_.Exception.Message)"
+        Send-PipelineNotification -Config $script:Config -Content "$($Task.filename) æ¸²æŸ“å¤±è´¥: $($_.Exception.Message)"
+        Push-RenderFailure -Json $taskJson
+    }
+    finally {
+        if ($stateSet) {
+            Clear-RenderState
+        }
+    }
+
+    if ($success -and -not $noUpload) {
+        try {
+            Push-UploadTask -Json $payloadJson
+            Write-PipelineLog "Queued for upload: $outputName"
+        }
+        catch {
+            Write-PipelineLog -Level ERROR -Message "Failed to queue upload for ${outputName}: $($_.Exception.Message)"
+            Push-RenderFailure -Json $taskJson
+        }
+    }
+
+    return $success
 }
 
 function Main {
     while ($true) {
-        # ²âÊÔ½Å±¾
-        # LPUSH biliup:render-list '{"bvid": "BV12345678","filename": "2025-08-17_21-35-28.mkv"}'
-        if ($waitForNewTask.IsPresent) {
-            $result = redis-cli -h $script:Config.RedisHost BLPOP biliup:render-list 0
-        } else {
-            $result = redis-cli -h $script:Config.RedisHost BLPOP biliup:render-list 5
+        $timeout = if ($waitForNewTask.IsPresent) { '0' } else { '5' }
+
+        try {
+            $result = Invoke-RedisCli -RedisHost $script:Config.RedisHost -Arguments @('BLPOP', 'biliup:render-list', $timeout)
+        }
+        catch {
+            Write-PipelineLog -Level ERROR -Message "Redis BLPOP failed: $($_.Exception.Message)"
+            Start-Sleep -Seconds 10
+            continue
         }
 
-        Write-Output "$($result)"
-        if ($result -eq "") {
-            Write-Output "No value found in render-list"
+        if (-not $result -or @($result).Count -lt 2) {
+            Write-PipelineLog 'No value found in biliup:render-list.'
             break
         }
-        $json = ConvertFrom-Json $result[1]
-        Start-VideoTask -json $json -FromRedis $true
+
+        $taskJson = [string]$result[1]
+        try {
+            $task = ConvertFrom-Json -InputObject $taskJson -ErrorAction Stop
+        }
+        catch {
+            Write-PipelineLog -Level ERROR -Message "Invalid task JSON: $taskJson"
+            Push-RenderFailure -Json $taskJson
+            continue
+        }
+
+        try {
+            $null = Invoke-RenderTask -Task $task
+        }
+        catch {
+            Write-PipelineLog -Level ERROR -Message "Unexpected render error: $($_.Exception.Message)"
+            Push-RenderFailure -Json $taskJson
+        }
     }
 
     if ($shutdown.IsPresent) {
-        shutdown -f -s -t 60
+        shutdown.exe -f -s -t 60
     }
 }
 
+if ($ValidateOnly.IsPresent) {
+    Write-PipelineLog "Config: $ConfigPath"
+    Write-PipelineLog "Redis: $($script:Config.RedisHost)"
+    Write-PipelineLog "Input: $($script:Config.InputPath)"
+    Write-PipelineLog "Output: $($script:Config.OutputPath)"
+
+    if (-not (Get-Command -Name 'redis-cli' -ErrorAction SilentlyContinue)) {
+        throw 'redis-cli not found in PATH.'
+    }
+    if (-not (Test-Path -LiteralPath $script:Config.InputPath -PathType Container)) {
+        throw "InputPath does not exist: $($script:Config.InputPath)"
+    }
+    if (Test-Path -LiteralPath $script:Config.OutputPath -PathType Leaf) {
+        throw "OutputPath is a file, not a directory: $($script:Config.OutputPath)"
+    }
+    if (-not (Test-Path -LiteralPath $script:Config.OutputPath -PathType Container)) {
+        Write-PipelineLog -Level WARN -Message "OutputPath does not exist yet; it will be created on first render."
+    }
+    if ($script:Config.ContainsKey('LogDirectory') -and -not [string]::IsNullOrWhiteSpace([string]$script:Config.LogDirectory)) {
+        if (-not (Test-Path -LiteralPath $script:Config.LogDirectory -PathType Container)) {
+            Write-PipelineLog -Level WARN -Message 'LogDirectory does not exist yet; it will be created on first render.'
+        }
+    }
+
+    $validParameters = (Get-Command -Name 'Invoke-VideoRender').Parameters.Keys
+    foreach ($key in $script:RenderOptions.Keys) {
+        if ($key -notin $validParameters) {
+            throw "Unknown Render option '$key' in $ConfigPath."
+        }
+    }
+
+    Test-RenderEnvironment
+    Write-PipelineLog 'Validation OK.'
+    return
+}
+
 Main
-# Send-WechatMessage -Content "testäÖÈ¾Íê±Ï" -BaseUrl $script:Config.NotifyUrl -SendTarget $script:Config.WechatTarget -Auth $script:Config.Auth

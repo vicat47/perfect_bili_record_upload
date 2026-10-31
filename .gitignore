@@ -1,0 +1,15 @@
+# Local configuration (copy from *.example.psd1)
+win_scripts/render.config.psd1
+win_scripts/upload.config.psd1
+win_scripts/bvid.txt
+
+# Logs
+*.log
+logs/
+
+# Local output
+output/
+
+# Python cache
+__pycache__/
+*.pyc

@@ -4,7 +4,6 @@ import redis
 from types import SimpleNamespace as _G
 from ctypes import *
 from ctypes.util import find_library
-import os
 import json
 
 
@@ -45,14 +44,20 @@ def get_rec_path() -> str:
     return G.config_get_string(cfg, e("AdvOut"), e("RecFilePath")).decode("utf-8")
 
 
+VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.flv', '.ts', '.mov'}
+
+
 def get_recorded_file():
-    '''从文件目录获取最新的录制文件
-    根据时间升序取最后一个
-    '''
+    '''从录制目录获取最新的视频文件。'''
     base_path = Path(get_rec_path())
-    list = os.listdir(base_path)
-    list.sort(key=lambda fileName: os.path.getmtime(base_path / fileName))
-    file_path = base_path / list[-1]
+    candidates = [
+        path for path in base_path.iterdir()
+        if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    ]
+    if not candidates:
+        raise FileNotFoundError(f'no video file found in {base_path}')
+    candidates.sort(key=lambda path: path.stat().st_mtime)
+    file_path = candidates[-1]
     print(f"recorded file in { file_path }")
     return file_path
 
