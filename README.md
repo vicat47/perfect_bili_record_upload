@@ -131,6 +131,9 @@ Invoke-VideoRender -InputPath .\a.mkv -OutputPath .\out\a.mp4 -FastStart
 # 按 10:00 / 20:00 快速拆分（-c copy）
 Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00
 
+# 只输出 10:00-20:00（不输出开头和结尾）
+Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00 -OnlyInner
+
 # 检查 ffmpeg / NVENC
 Test-RenderEnvironment | Format-List
 ```

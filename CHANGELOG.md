@@ -1,3 +1,8 @@
+# 20261103
+
+- `Split-Video` 新增 `-OnlyInner`（别名 `-ExcludeEnds`）：只输出内部区间，不输出 0→t1 和 tN→end。
+- `RenderVideo` 模块版本提升到 1.3.0。
+
 # 20261031
 
 - 抽出 `RenderVideo` 模块：编码、快速拆分、媒体信息、环境检查、实时进度。

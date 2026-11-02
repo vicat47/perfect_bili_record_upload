@@ -77,6 +77,19 @@ ffmpeg -i input -map 0 -c copy -f segment -segment_times t1,t2 -reset_timestamps
 
 `-c copy` 只能在关键帧处切；如果两个时间点落在同一个 GOP 内，ffmpeg 可能少生成分段，函数会报错并保留已生成文件。
 
+### 只输出内部区间
+
+`Split-Video -OnlyInner`（别名 `-ExcludeEnds`）只输出 t1→t2、t2→t3 ...，不输出 0→t1 和 tN→end。
+例如：
+
+```powershell
+Split-Video .\a.mkv 5 10 -OnlyInner
+```
+
+只输出 5 秒到 10 秒之间的内容。至少需要两个时间点；N 个时间点输出 N-1 段，编号从 `-StartNumber` 开始。
+
+实现上先用临时目录生成全部分段，再只把内部区间移动到输出目录；成功后会删除临时目录，失败时保留并在错误信息中给出路径。
+
 ## 与原脚本相比修复的问题
 
 | 原问题 | 现在 |
@@ -118,3 +131,6 @@ $result = Invoke-VideoRender `
 - `-NoProgress` 可关闭进度，日志中不包含进度行。
 - 参数错误会抛异常并清理临时 `.part` 文件。
 - 现有输出未加 `-Overwrite` 会直接报错。
+- `Split-Video -OnlyInner` 在 `test.mkv` 上验证：5:00/10:00 输出 1 段（约 300 秒），5:00/10:00/15:00 输出 2 段；临时目录成功后清理。
+- `-OnlyInner` 只传一个时间点会报错；关键帧不足时会报错并保留临时目录。
+- Windows PowerShell `5.1.26100` 下 `-OnlyInner -DryRun` 通过。

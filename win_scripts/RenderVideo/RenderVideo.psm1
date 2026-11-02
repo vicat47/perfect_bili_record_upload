@@ -656,6 +656,10 @@ function Split-Video {
         因为使用 -c copy，不会重新编码，切点会受关键帧限制，实际位置可能略有偏差。
         默认显示 ffmpeg 风格进度；加 -NoProgress 可关闭。
 
+        加 -OnlyInner（别名 -ExcludeEnds）时只输出内部区间：
+            t1 -> t2, t2 -> t3, ..., 不输出 0 -> t1 和最后一个时间点 -> end。
+        例如 -TimePoint 5,10 -OnlyInner 只输出 5 秒到 10 秒之间的内容。
+
         时间点支持：
             600          （秒）
             10:00        （分:秒）
@@ -672,6 +676,9 @@ function Split-Video {
 
     .EXAMPLE
         Split-Video -InputPath .\a.mkv -TimePoint 600,1200 -OutputDirectory .\out -OutputExtension .mp4
+
+    .EXAMPLE
+        Split-Video .\a.mkv 5 10 -OnlyInner
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([pscustomobject])]
@@ -689,6 +696,9 @@ function Split-Video {
 
         [ValidateRange(0, 9999)]
         [int]$StartNumber = 1,
+
+        [Alias('ExcludeEnds')]
+        [switch]$OnlyInner,
 
         [switch]$Overwrite,
 
@@ -798,16 +808,49 @@ function Split-Video {
     }
     $sortedTimes = @($validTimes)
 
-    $safeOutputDir = $outputDir -replace '%', '%%'
-    $safeBaseName = $baseName -replace '%', '%%'
-    $outputPattern = Join-Path $safeOutputDir ("${safeBaseName}_split_%d$extension")
-
-    $expectedFiles = @()
-    for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
-        $expectedFiles += Join-Path $outputDir ("${baseName}_split_$($StartNumber + $segmentIndex)$extension")
+    $onlyInner = $OnlyInner.IsPresent
+    if ($onlyInner -and $sortedTimes.Count -lt 2) {
+        throw '-OnlyInner requires at least two time points (for example 5,10).'
     }
 
-    $existingFiles = @($expectedFiles | Where-Object { Test-Path -LiteralPath $_ })
+    $safeOutputDir = $outputDir -replace '%', '%%'
+    $safeBaseName = $baseName -replace '%', '%%'
+
+    $finalFiles = @()
+    if ($onlyInner) {
+        for ($segmentIndex = 0; $segmentIndex -lt ($sortedTimes.Count - 1); $segmentIndex++) {
+            $finalFiles += Join-Path $outputDir ("${baseName}_split_$($StartNumber + $segmentIndex)$extension")
+        }
+    }
+    else {
+        for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
+            $finalFiles += Join-Path $outputDir ("${baseName}_split_$($StartNumber + $segmentIndex)$extension")
+        }
+    }
+
+    $tempDir = $null
+    if ($onlyInner) {
+        $tempDir = Join-Path $outputDir ('.split-video-' + [guid]::NewGuid().ToString('N'))
+        $safeTempDir = $tempDir -replace '%', '%%'
+        $outputPattern = Join-Path $safeTempDir ('segment_%d' + $extension)
+        $segmentStartNumber = 0
+    }
+    else {
+        $outputPattern = Join-Path $safeOutputDir ("${safeBaseName}_split_%d$extension")
+        $segmentStartNumber = $StartNumber
+    }
+
+    $ffmpegOutputFiles = @()
+    if ($onlyInner) {
+        for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
+            $ffmpegOutputFiles += Join-Path $tempDir ("segment_$segmentIndex$extension")
+        }
+    }
+    else {
+        $ffmpegOutputFiles = @($finalFiles)
+    }
+
+    $existingFiles = @($finalFiles | Where-Object { Test-Path -LiteralPath $_ })
     if ($existingFiles.Count -gt 0 -and -not $Overwrite) {
         throw "Output files already exist: $($existingFiles -join ', '). Use -Overwrite to replace them."
     }
@@ -854,7 +897,7 @@ function Split-Video {
     Add-Argument '-reset_timestamps'
     Add-Argument '1'
     Add-Argument '-segment_start_number'
-    Add-Argument ([string]$StartNumber)
+    Add-Argument ([string]$segmentStartNumber)
 
     if ($ExtraFFmpegArgs -and $ExtraFFmpegArgs.Count -gt 0) {
         foreach ($extraArg in $ExtraFFmpegArgs) {
@@ -867,7 +910,7 @@ function Split-Video {
     $logFull = $null
     if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
         $logFull = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
-        if ($logFull -eq $inputFull -or $expectedFiles -contains $logFull) {
+        if ($logFull -eq $inputFull -or $finalFiles -contains $logFull -or $ffmpegOutputFiles -contains $logFull) {
             throw 'LogPath must be different from InputPath and the output files.'
         }
         if (Test-Path -LiteralPath $logFull -PathType Container) {
@@ -878,7 +921,7 @@ function Split-Video {
     $ffmpegArgArray = $argumentList.ToArray()
     $displayCommand = "$ffmpeg " + (($ffmpegArgArray | ForEach-Object { Format-ProcessArgument -Argument $_ }) -join ' ')
 
-    $expectedOutputInfo = foreach ($file in $expectedFiles) {
+    $expectedOutputInfo = foreach ($file in $finalFiles) {
         [pscustomobject]@{
             Path      = $file
             SizeBytes = $null
@@ -889,6 +932,7 @@ function Split-Video {
         InputPath       = $inputFull
         OutputDirectory = $outputDir
         SplitPoints     = @($sortedTimes)
+        OnlyInner       = $onlyInner
         OutputFiles     = @($expectedOutputInfo)
         CommandLine     = $displayCommand
     }
@@ -900,7 +944,7 @@ function Split-Video {
         return [pscustomobject]$resultBase
     }
 
-    if (-not $PSCmdlet.ShouldProcess($outputDir, "Split video into $($sortedTimes.Count + 1) parts")) {
+    if (-not $PSCmdlet.ShouldProcess($outputDir, "Split video into $($finalFiles.Count) part(s)")) {
         $resultBase.Success = $true
         $resultBase.Skipped = $true
         $resultBase.ExitCode = $null
@@ -909,6 +953,9 @@ function Split-Video {
 
     if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+    if ($onlyInner) {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
     if ($logFull) {
         $logDirectory = [IO.Path]::GetDirectoryName($logFull)
@@ -938,21 +985,43 @@ function Split-Video {
 
     if ($exitCode -ne 0) {
         $tail = ($ffmpegOutput | Select-Object -Last 30) -join [Environment]::NewLine
-        throw "ffmpeg failed with exit code $exitCode.`n$tail"
+        $tempMessage = if ($onlyInner -and (Test-Path -LiteralPath $tempDir)) {
+            "`nTemporary segments were kept in: $tempDir"
+        }
+        else {
+            ''
+        }
+        throw "ffmpeg failed with exit code $exitCode.`n$tail$tempMessage"
     }
 
-    $missingFiles = @($expectedFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+    $missingFiles = @($ffmpegOutputFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
     if ($missingFiles.Count -gt 0) {
-        $actualFiles = @($expectedFiles | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
-        $message = "ffmpeg produced fewer segments than requested (expected $($expectedFiles.Count), found $($actualFiles.Count)). " +
+        $actualFiles = @($ffmpegOutputFiles | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+        $producedDir = if ($onlyInner) { $tempDir } else { $outputDir }
+        $message = "ffmpeg produced fewer segments than requested (expected $($ffmpegOutputFiles.Count), found $($actualFiles.Count)). " +
             'This usually happens with -c copy when a requested split point cannot be aligned to a keyframe. ' +
             'Move the split points or re-encode for exact cuts. ' +
             "Missing: $($missingFiles -join ', '). " +
-            "Produced files were kept in: $outputDir"
+            "Produced files were kept in: $producedDir"
         throw $message
     }
 
-    $outputInfo = foreach ($file in $expectedFiles) {
+    if ($onlyInner) {
+        try {
+            for ($segmentIndex = 1; $segmentIndex -le ($sortedTimes.Count - 1); $segmentIndex++) {
+                $sourceFile = Join-Path $tempDir ("segment_$segmentIndex$extension")
+                $targetFile = $finalFiles[$segmentIndex - 1]
+                Move-Item -LiteralPath $sourceFile -Destination $targetFile -Force
+            }
+        }
+        catch {
+            throw "Failed to move inner segments to the output directory. Temporary files were kept in '$tempDir'. $($_.Exception.Message)"
+        }
+
+        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $outputInfo = foreach ($file in $finalFiles) {
         $outputItem = Get-Item -LiteralPath $file
         [pscustomobject]@{
             Path      = $outputItem.FullName
@@ -964,6 +1033,7 @@ function Split-Video {
         InputPath       = $inputFull
         OutputDirectory = $outputDir
         SplitPoints     = @($sortedTimes)
+        OnlyInner       = $onlyInner
         OutputFiles     = @($outputInfo)
         Success         = $true
         ExitCode        = 0

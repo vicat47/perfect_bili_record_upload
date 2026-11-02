@@ -229,6 +229,18 @@ Split-Video .\a.mkv 600,1200 `
     -Overwrite
 ```
 
+只输出内部区间（不输出开头和结尾）：
+
+```powershell
+# 只输出 10:00 到 20:00
+Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00 -OnlyInner
+
+# 输出 10:00-20:00、20:00-30:00
+Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
+```
+
+`-OnlyInner` 的别名是 `-ExcludeEnds`，需要至少两个时间点。N 个时间点会输出 N-1 段，编号仍从 `-StartNumber` 开始。
+
 时间点格式：
 
 - `600`：秒
@@ -248,6 +260,7 @@ Split-Video .\a.mkv 600,1200 `
 | `-OutputName` | 输入文件名 | 输出文件名前缀，自动去掉扩展名 |
 | `-OutputExtension` | 输入扩展名 | 输出扩展名，例如 `.mp4` |
 | `-StartNumber` | `1` | 第一段的编号 |
+| `-OnlyInner` / `-ExcludeEnds` | 关 | 只输出内部区间，不输出 0→t1 和 tN→end |
 | `-Overwrite` | 关 | 输出已存在时允许覆盖 |
 | `-NoProgress` | 关 | 关闭实时进度 |
 | `-LogLevel` | `warning` | ffmpeg 日志级别 |
@@ -258,6 +271,7 @@ Split-Video .\a.mkv 600,1200 `
 ### 注意
 
 - `-c copy` 只能在关键帧处切，实际切点可能比给定时间点早或晚；如果两个时间点落在同一个 GOP 内，ffmpeg 可能少生成分段，函数会报错并保留已生成的文件。需要精确切点请重新编码。
+- `-OnlyInner` 内部会先用临时目录生成全部分段，再只移动内部区间到输出目录；成功后会删除临时目录。失败时临时目录会保留，错误信息里会给出路径。
 - 默认保留输入容器的扩展名。强制 `-OutputExtension .mp4` 时，如果源码流/字幕等 MP4 不支持，ffmpeg 会报错。
 - 使用 `-map 0` 保留所有流（视频、音频、字幕等）。
 - 之前拆分留下的 `_split_n` 文件不会自动删除；重新拆分时注意 `-Overwrite` 和编号。
