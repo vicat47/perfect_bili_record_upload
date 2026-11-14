@@ -10,6 +10,17 @@
 - `Test-RenderEnvironment`：检查 ffmpeg / ffprobe / NVENC
 - `Get-VideoInfo`：读取媒体信息
 
+上传队列不在本模块内。需要入队时使用 `PerfectBili.Common` 的 `Add-UploadQueue`，用管道接在 `Split-Video` / `Invoke-VideoRender` 后面：
+
+```powershell
+Import-Module .\PerfectBili.Common\PerfectBili.Common.psd1
+
+Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00 |
+    Add-UploadQueue -Bvid BV1xxxxxxxxx -RedisHost 192.168.31.40
+```
+
+`Add-UploadQueue` 默认 `-QueueKey biliup:render-list`、`-FileNameStyle Leaf`；NAS 上的 Node-RED 上传流程只接受文件名，不接受 `X:\...` 绝对路径。
+
 > 模块设计、原脚本问题清单和迁移说明见 [`docs\render-video-module.md`](../../docs/render-video-module.md)。
 
 ## 文件结构
@@ -241,6 +252,8 @@ Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
 
 `-OnlyInner` 的别名是 `-ExcludeEnds`，需要至少两个时间点。N 个时间点会输出 N-1 段，编号仍从 `-StartNumber` 开始。
 
+恰好两个时间点时会走快速路径，直接用 `-ss`/`-t` 只读中间段；超过两个时间点仍使用 segment muxer。
+
 时间点格式：
 
 - `600`：秒
@@ -271,7 +284,9 @@ Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
 ### 注意
 
 - `-c copy` 只能在关键帧处切，实际切点可能比给定时间点早或晚；如果两个时间点落在同一个 GOP 内，ffmpeg 可能少生成分段，函数会报错并保留已生成的文件。需要精确切点请重新编码。
-- `-OnlyInner` 内部会先用临时目录生成全部分段，再只移动内部区间到输出目录；成功后会删除临时目录。失败时临时目录会保留，错误信息里会给出路径。
+- `-OnlyInner` 恰好两个时间点时会走 `-ss`/`-t` 快速路径；超过两个时间点才先用临时目录生成全部分段，再只移动内部区间到输出目录。成功后会删除临时目录，失败时临时目录会保留，错误信息里会给出路径。
+- `-c copy` 只能在关键帧处切，快速路径的实际切点可能比给定时间点早几百毫秒到几秒。
+- segment muxer 没有 `total_size` 时进度显示 `size=N/A`；快速路径显示实际大小。
 - 默认保留输入容器的扩展名。强制 `-OutputExtension .mp4` 时，如果源码流/字幕等 MP4 不支持，ffmpeg 会报错。
 - 使用 `-map 0` 保留所有流（视频、音频、字幕等）。
 - 之前拆分留下的 `_split_n` 文件不会自动删除；重新拆分时注意 `-Overwrite` 和编号。

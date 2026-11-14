@@ -88,7 +88,9 @@ Split-Video .\a.mkv 5 10 -OnlyInner
 
 只输出 5 秒到 10 秒之间的内容。至少需要两个时间点；N 个时间点输出 N-1 段，编号从 `-StartNumber` 开始。
 
-实现上先用临时目录生成全部分段，再只把内部区间移动到输出目录；成功后会删除临时目录，失败时保留并在错误信息中给出路径。
+恰好两个时间点时走快速路径：直接用 `-ss <start> -i <input> -t <duration> -c copy` 只读中间段，不再处理 0→start 和 end→结尾。超过两个时间点仍先用临时目录生成全部分段，再只把内部区间移动到输出目录；成功后会删除临时目录，失败时保留并在错误信息中给出路径。
+
+`-c copy` 仍然只能在关键帧处切，快速路径的实际切点可能比给定时间点早几百毫秒到几秒。
 
 ## 与原脚本相比修复的问题
 
@@ -124,6 +126,20 @@ $result = Invoke-VideoRender `
 
 完整参数见 [`../win_scripts/RenderVideo/README.md`](../win_scripts/RenderVideo/README.md)。
 
+## 配合上传队列
+
+`RenderVideo` 本身仍然不访问 Redis。入队由 `PerfectBili.Common` 里的 `Add-UploadQueue` 负责，推荐用管道接在拆分/渲染后面：
+
+```powershell
+Import-Module .\RenderVideo\RenderVideo.psd1
+Import-Module .\PerfectBili.Common\PerfectBili.Common.psd1
+
+Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00 |
+    Add-UploadQueue -Bvid BV1xxxxxxxxx -RedisHost 192.168.31.40
+```
+
+`Add-UploadQueue` 接受 `Split-Video` / `Invoke-VideoRender` 的返回对象、`FileInfo` 或路径字符串；每个文件生成一条 JSON 并按顺序 `RPUSH` 到 `biliup:render-list`（默认队列）。`filename` 默认是文件名（`-FileNameStyle Leaf`），因为 NAS 上的 Node-RED 上传流程只接受文件名，不接受 `X:\...` 绝对路径；产物需要放在它的 `SOURCE_DIR` 下。`-WhatIf` 不连接 Redis，`-PassThru` 返回队列项，入队失败后可以只重试入队。
+
 ## 验证记录
 
 - PowerShell `7.6.9` 和 Windows PowerShell `5.1.26100` 都能导入模块。
@@ -134,3 +150,11 @@ $result = Invoke-VideoRender `
 - `Split-Video -OnlyInner` 在 `test.mkv` 上验证：5:00/10:00 输出 1 段（约 300 秒），5:00/10:00/15:00 输出 2 段；临时目录成功后清理。
 - `-OnlyInner` 只传一个时间点会报错；关键帧不足时会报错并保留临时目录。
 - Windows PowerShell `5.1.26100` 下 `-OnlyInner -DryRun` 通过。
+- `-OnlyInner` 恰好两个时间点时走 `-ss`/`-t` 快速路径；`test.mkv` 5:00–10:00 输出约 301 秒，和 segment muxer 的 300 秒结果接近。
+- 超过两个时间点时仍使用 segment muxer；`-DryRun` 命令中能看到 `-segment_times`。
+- segment muxer 没有 `total_size` 时，进度显示 `size=N/A`，不再显示误导性的 `0kB`；快速路径显示实际大小。
+- `Split-Video ... | Add-UploadQueue` 在 `test.mkv` 上生成 3 段并按 `_split_1`、`_split_2`、`_split_3` 顺序写入测试队列。
+- `Add-UploadQueue -WhatIf` 不连接 Redis；`-PassThru` 返回计划 JSON、`QueueLength` 和 `Queued`。
+- PowerShell `7.6.9` 和 `5.1.26100` 下中文文件名入队正常，Redis 中的 JSON 为有效 UTF-8。
+- `-FileNameStyle` 默认 `Leaf` 输出文件名，`FullName` 输出绝对路径；两种模式都包含 `path` 字段。
+- `-Metadata` 可以附加字段；覆盖 `filename` / `bvid` 会直接报错。

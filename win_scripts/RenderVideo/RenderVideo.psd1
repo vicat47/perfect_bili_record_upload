@@ -1,6 +1,6 @@
 ﻿@{
     RootModule           = 'RenderVideo.psm1'
-    ModuleVersion        = '1.3.0'
+    ModuleVersion        = '1.4.0'
     GUID                 = 'da88d6f2-0942-4d52-b4ab-13ae9d69b7c4'
     Author               = 'Vicat'
     CompanyName          = ''
@@ -16,7 +16,7 @@
         PSData = @{
             Tags         = @('ffmpeg', 'video', 'render', 'nvenc')
             ProjectUri   = ''
-            ReleaseNotes = 'Add Split-Video -OnlyInner for inner time ranges.'
+            ReleaseNotes = 'Add a fast path for Split-Video -OnlyInner with exactly two time points.'
         }
     }
 }

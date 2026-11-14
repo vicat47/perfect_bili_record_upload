@@ -63,10 +63,14 @@ function Format-FfmpegProgress {
     $speed = Get-Value -Key 'speed' -Default 'N/A'
 
     $sizeBytes = 0L
+    $sizeKnown = $false
     if ($State.ContainsKey('total_size')) {
-        [void][long]::TryParse($State['total_size'], [ref]$sizeBytes)
+        $sizeKnown = [long]::TryParse($State['total_size'], [ref]$sizeBytes)
     }
-    if ($sizeBytes -ge 1GB) {
+    if (-not $sizeKnown -or $sizeBytes -le 0) {
+        $sizeText = '     N/A'
+    }
+    elseif ($sizeBytes -ge 1GB) {
         $sizeText = '{0,8:F2}GiB' -f ($sizeBytes / 1GB)
     }
     elseif ($sizeBytes -ge 1MB) {
@@ -812,6 +816,7 @@ function Split-Video {
     if ($onlyInner -and $sortedTimes.Count -lt 2) {
         throw '-OnlyInner requires at least two time points (for example 5,10).'
     }
+    $fastOnlyInner = $onlyInner -and ($sortedTimes.Count -eq 2)
 
     $safeOutputDir = $outputDir -replace '%', '%%'
     $safeBaseName = $baseName -replace '%', '%%'
@@ -832,7 +837,8 @@ function Split-Video {
     if ($onlyInner) {
         $tempDir = Join-Path $outputDir ('.split-video-' + [guid]::NewGuid().ToString('N'))
         $safeTempDir = $tempDir -replace '%', '%%'
-        $outputPattern = Join-Path $safeTempDir ('segment_%d' + $extension)
+        $segmentPattern = if ($fastOnlyInner) { 'segment_1' } else { 'segment_%d' }
+        $outputPattern = Join-Path $safeTempDir ($segmentPattern + $extension)
         $segmentStartNumber = 0
     }
     else {
@@ -842,8 +848,13 @@ function Split-Video {
 
     $ffmpegOutputFiles = @()
     if ($onlyInner) {
-        for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
-            $ffmpegOutputFiles += Join-Path $tempDir ("segment_$segmentIndex$extension")
+        if ($fastOnlyInner) {
+            $ffmpegOutputFiles = @(Join-Path $tempDir ("segment_1$extension"))
+        }
+        else {
+            for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
+                $ffmpegOutputFiles += Join-Path $tempDir ("segment_$segmentIndex$extension")
+            }
         }
     }
     else {
@@ -880,24 +891,43 @@ function Split-Video {
     else {
         Add-Argument '-n'
     }
-    Add-Argument '-i'
-    Add-Argument $inputFull
-    Add-Argument '-map'
-    Add-Argument '0'
-    Add-Argument '-c'
-    Add-Argument 'copy'
-    Add-Argument '-f'
-    Add-Argument 'segment'
+    if ($fastOnlyInner) {
+        $startText = $sortedTimes[0].ToString('0.###', [Globalization.CultureInfo]::InvariantCulture)
+        $durationText = ($sortedTimes[1] - $sortedTimes[0]).ToString('0.###', [Globalization.CultureInfo]::InvariantCulture)
 
-    $segmentTimesValue = (($sortedTimes | ForEach-Object {
-        $_.ToString('0.###', [Globalization.CultureInfo]::InvariantCulture)
-    }) -join ',')
-    Add-Argument '-segment_times'
-    Add-Argument $segmentTimesValue
-    Add-Argument '-reset_timestamps'
-    Add-Argument '1'
-    Add-Argument '-segment_start_number'
-    Add-Argument ([string]$segmentStartNumber)
+        Add-Argument '-ss'
+        Add-Argument $startText
+        Add-Argument '-i'
+        Add-Argument $inputFull
+        Add-Argument '-t'
+        Add-Argument $durationText
+        Add-Argument '-map'
+        Add-Argument '0'
+        Add-Argument '-c'
+        Add-Argument 'copy'
+        Add-Argument '-avoid_negative_ts'
+        Add-Argument 'make_zero'
+    }
+    else {
+        Add-Argument '-i'
+        Add-Argument $inputFull
+        Add-Argument '-map'
+        Add-Argument '0'
+        Add-Argument '-c'
+        Add-Argument 'copy'
+        Add-Argument '-f'
+        Add-Argument 'segment'
+
+        $segmentTimesValue = (($sortedTimes | ForEach-Object {
+            $_.ToString('0.###', [Globalization.CultureInfo]::InvariantCulture)
+        }) -join ',')
+        Add-Argument '-segment_times'
+        Add-Argument $segmentTimesValue
+        Add-Argument '-reset_timestamps'
+        Add-Argument '1'
+        Add-Argument '-segment_start_number'
+        Add-Argument ([string]$segmentStartNumber)
+    }
 
     if ($ExtraFFmpegArgs -and $ExtraFFmpegArgs.Count -gt 0) {
         foreach ($extraArg in $ExtraFFmpegArgs) {
