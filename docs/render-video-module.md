@@ -90,6 +90,14 @@ Split-Video .\a.mkv 5 10 -OnlyInner
 
 恰好两个时间点时走快速路径：直接用 `-ss <start> -i <input> -t <duration> -c copy` 只读中间段，不再处理 0→start 和 end→结尾。超过两个时间点仍先用临时目录生成全部分段，再只把内部区间移动到输出目录；成功后会删除临时目录，失败时保留并在错误信息中给出路径。
 
+最终只有一个输出文件时，可以用 `-OutputPath`（别名 `-OutputFile`）指定完整文件名，例如：
+
+```powershell
+Split-Video .\a.mkv 30:46 37:53 -OnlyInner -OutputPath .\my-clip.mkv
+```
+
+`-OutputPath` 不能和 `-OutputDirectory` / `-OutputName` / `-OutputExtension` / `-StartNumber` 同时使用；多个输出文件时会直接报错。
+
 `-c copy` 仍然只能在关键帧处切，快速路径的实际切点可能比给定时间点早几百毫秒到几秒。
 
 ## 与原脚本相比修复的问题
@@ -153,6 +161,8 @@ Split-Video -InputPath .\a.mkv -TimePoint 10:00, 20:00 |
 - `-OnlyInner` 恰好两个时间点时走 `-ss`/`-t` 快速路径；`test.mkv` 5:00–10:00 输出约 301 秒，和 segment muxer 的 300 秒结果接近。
 - 超过两个时间点时仍使用 segment muxer；`-DryRun` 命令中能看到 `-segment_times`。
 - segment muxer 没有 `total_size` 时，进度显示 `size=N/A`，不再显示误导性的 `0kB`；快速路径显示实际大小。
+- `-OutputPath` 在恰好一个输出文件时可用；实际生成 `2026-11-15_10-09-00_47-54-52-02.mkv`，耗时约 19 秒，输出约 249 秒。
+- `-OutputPath` 与 `-OutputName` 同时使用、超过一个输出文件、或路径没有扩展名时都会直接报错；PowerShell 5.1 下也通过。
 - `Split-Video ... | Add-UploadQueue` 在 `test.mkv` 上生成 3 段并按 `_split_1`、`_split_2`、`_split_3` 顺序写入测试队列。
 - `Add-UploadQueue -WhatIf` 不连接 Redis；`-PassThru` 返回计划 JSON、`QueueLength` 和 `Queued`。
 - PowerShell `7.6.9` 和 `5.1.26100` 下中文文件名入队正常，Redis 中的 JSON 为有效 UTF-8。

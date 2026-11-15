@@ -5,6 +5,7 @@
 - `Add-UploadQueue` 队列项默认只写 `filename` 和 `bvid`，不再写 Windows 的 `X:\...` `path` 字段；需要附加字段时用 `-Metadata`。
 - `Split-Video -OnlyInner` 恰好两个时间点时增加 `-ss`/`-t` 快速路径，不再先处理整个文件。
 - segment muxer 没有 `total_size` 时进度显示 `size=N/A`，不再显示 `0kB`。
+- `Split-Video` 新增 `-OutputPath` / `-OutputFile`，可在只有一个输出文件时指定完整文件名。
 - `RenderVideo` 模块版本提升到 1.4.0，`PerfectBili.Common` 模块版本提升到 1.1.3。
 - 补充直接上传流程、`SOURCE_DIR` 和 Redis 排查说明。
 

@@ -246,6 +246,9 @@ Split-Video .\a.mkv 600,1200 `
 # 只输出 10:00 到 20:00
 Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00 -OnlyInner
 
+# 指定唯一输出文件的完整路径（只适用于恰好一个输出文件）
+Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00 -OnlyInner -OutputPath .\my-clip.mkv
+
 # 输出 10:00-20:00、20:00-30:00
 Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
 ```
@@ -272,6 +275,7 @@ Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
 | `-OutputDirectory` | 当前目录 | 输出目录 |
 | `-OutputName` | 输入文件名 | 输出文件名前缀，自动去掉扩展名 |
 | `-OutputExtension` | 输入扩展名 | 输出扩展名，例如 `.mp4` |
+| `-OutputPath` / `-OutputFile` | 空 | 唯一输出文件的完整路径；仅用于恰好一个输出文件（`-OnlyInner` 恰好两个时间点） |
 | `-StartNumber` | `1` | 第一段的编号 |
 | `-OnlyInner` / `-ExcludeEnds` | 关 | 只输出内部区间，不输出 0→t1 和 tN→end |
 | `-Overwrite` | 关 | 输出已存在时允许覆盖 |
@@ -285,6 +289,7 @@ Split-Video -InputPath .\a.mkv -TimePoint 10:00,20:00,30:00 -OnlyInner
 
 - `-c copy` 只能在关键帧处切，实际切点可能比给定时间点早或晚；如果两个时间点落在同一个 GOP 内，ffmpeg 可能少生成分段，函数会报错并保留已生成的文件。需要精确切点请重新编码。
 - `-OnlyInner` 恰好两个时间点时会走 `-ss`/`-t` 快速路径；超过两个时间点才先用临时目录生成全部分段，再只移动内部区间到输出目录。成功后会删除临时目录，失败时临时目录会保留，错误信息里会给出路径。
+- `-OutputPath` 只能用于“最终只有一个输出文件”的情况（`-OnlyInner` 恰好两个时间点），不能和 `-OutputDirectory` / `-OutputName` / `-OutputExtension` / `-StartNumber` 同时使用。
 - `-c copy` 只能在关键帧处切，快速路径的实际切点可能比给定时间点早几百毫秒到几秒。
 - segment muxer 没有 `total_size` 时进度显示 `size=N/A`；快速路径显示实际大小。
 - 默认保留输入容器的扩展名。强制 `-OutputExtension .mp4` 时，如果源码流/字幕等 MP4 不支持，ffmpeg 会报错。

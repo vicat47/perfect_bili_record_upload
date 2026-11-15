@@ -672,6 +672,11 @@ function Split-Video {
 
         0 和 end 不需要传；第一段总是从 0 开始，最后一段自动到结尾。
 
+        指定唯一输出文件的完整路径：
+            只有最终只输出一个文件时才支持，也就是 -OnlyInner 恰好两个时间点。
+            使用 -OutputPath 时不能再指定 -OutputDirectory / -OutputName /
+            -OutputExtension / -StartNumber。
+
     .EXAMPLE
         Split-Video -InputPath .\a.mkv -TimePoint 00:10:00,00:20:00
 
@@ -683,6 +688,9 @@ function Split-Video {
 
     .EXAMPLE
         Split-Video .\a.mkv 5 10 -OnlyInner
+
+    .EXAMPLE
+        Split-Video .\a.mkv 30:46 37:53 -OnlyInner -OutputPath .\2026-11-15_10-09-00_抢战.mkv
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([pscustomobject])]
@@ -697,6 +705,8 @@ function Split-Video {
         [string]$OutputDirectory = (Get-Location).Path,
         [string]$OutputName,
         [string]$OutputExtension,
+        [Alias('OutputFile')]
+        [string]$OutputPath,
 
         [ValidateRange(0, 9999)]
         [int]$StartNumber = 1,
@@ -757,6 +767,38 @@ function Split-Video {
     }
     if ($extension -notmatch '^\.[A-Za-z0-9]+$') {
         throw "Invalid output extension: $extension"
+    }
+
+    $exactOutputPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+        foreach ($conflict in @('OutputDirectory', 'OutputName', 'OutputExtension', 'StartNumber')) {
+            if ($PSBoundParameters.ContainsKey($conflict)) {
+                throw "OutputPath cannot be combined with -$conflict."
+            }
+        }
+
+        $exactOutputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
+        if (Test-Path -LiteralPath $exactOutputPath -PathType Container) {
+            throw "OutputPath is a directory: $exactOutputPath"
+        }
+        if ($exactOutputPath -eq $inputFull) {
+            throw 'OutputPath must be different from InputPath.'
+        }
+
+        $exactExtension = [IO.Path]::GetExtension($exactOutputPath)
+        if ([string]::IsNullOrWhiteSpace($exactExtension)) {
+            throw 'OutputPath must include an extension.'
+        }
+        if ($exactExtension -notmatch '^\.[A-Za-z0-9]+$') {
+            throw "Invalid output extension: $exactExtension"
+        }
+
+        $outputDir = [IO.Path]::GetDirectoryName($exactOutputPath)
+        if ([string]::IsNullOrWhiteSpace($outputDir)) {
+            $outputDir = (Get-Location).Path
+        }
+        $baseName = [IO.Path]::GetFileNameWithoutExtension($exactOutputPath)
+        $extension = $exactExtension
     }
 
     $rawSeconds = @()
@@ -831,6 +873,13 @@ function Split-Video {
         for ($segmentIndex = 0; $segmentIndex -le $sortedTimes.Count; $segmentIndex++) {
             $finalFiles += Join-Path $outputDir ("${baseName}_split_$($StartNumber + $segmentIndex)$extension")
         }
+    }
+
+    if ($exactOutputPath) {
+        if ($finalFiles.Count -ne 1) {
+            throw 'OutputPath requires exactly one output file. Use -OnlyInner with exactly two time points.'
+        }
+        $finalFiles = @($exactOutputPath)
     }
 
     $tempDir = $null
